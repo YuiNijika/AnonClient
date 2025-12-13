@@ -1,75 +1,37 @@
-# Nuxt Minimal Starter
+# Nuxt 4 项目
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+Nuxt 4 + Pinia + TypeScript
 
-## Setup
-
-Make sure to install dependencies:
+## 安装依赖
 
 ```bash
-# npm
-npm install
-
-# pnpm
 pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
 ```
 
-## Development Server
-
-Start the development server on `http://localhost:3000`:
+## 开发
 
 ```bash
-# npm
-npm run dev
-
-# pnpm
 pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
-
-Build the application for production:
+## 构建
 
 ```bash
-# npm
-npm run build
-
-# pnpm
 pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
 ```
 
-Locally preview production build:
+## 配置
 
-```bash
-# npm
-npm run preview
+API 基础 URL 配置在 `app/composables/api/config.ts`
 
-# pnpm
-pnpm preview
+## 使用
 
-# yarn
-yarn preview
+```vue
+<script setup lang="ts">
+const { login, logout, isLoggedIn } = useAuth()
+const { getUserInfo, userInfo } = useUser()
 
-# bun
-bun run preview
+// 登录
+await login({ username: 'admin', password: 'password' })
+</script>
 ```
-
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
