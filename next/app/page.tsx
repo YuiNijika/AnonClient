@@ -3,31 +3,41 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../api/useAuth'
 import { useUser } from '../api/useUser'
+import { useCaptcha } from '../api/useCaptcha'
 
 export default function Home() {
   const { login, logout, checkLogin, isLoggedIn, isLoading, error, clearError } = useAuth()
   const { getUserInfo, userInfo, clearUserInfo } = useUser()
+  const { captchaImage, autoInit, refreshCaptcha, isLoading: captchaLoading } = useCaptcha()
   
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [captcha, setCaptcha] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [responseJson, setResponseJson] = useState<string | null>(null)
   const [fetchingUserInfo, setFetchingUserInfo] = useState(false)
+  const [apiService, setApiService] = useState<any>(null)
 
   useEffect(() => {
     const init = async () => {
       try {
-        const { apiService } = await import('../api/core')
+        const { apiService: service } = await import('../api/core')
         const { getStoredToken } = await import('../lib/storage')
         
-        await apiService.initConfig()
+        setApiService(service)
+        await service.initConfig()
         
         const token = getStoredToken()
         if (token) {
-          apiService.setToken(token)
+          service.setToken(token)
         }
         
         await checkLogin()
+        
+        // 如果启用验证码，自动初始化
+        if (service.isCaptchaEnabled()) {
+          await autoInit()
+        }
       } catch (err) {
         console.error('应用初始化失败:', err)
       }
@@ -45,7 +55,13 @@ export default function Home() {
         username,
         password,
         rememberMe,
+        ...(apiService?.isCaptchaEnabled() ? { captcha } : {}),
       })
+      // 登录成功后刷新验证码
+      if (apiService?.isCaptchaEnabled()) {
+        setCaptcha('')
+        await refreshCaptcha()
+      }
       // 登录成功后，等待一下再获取用户信息，确保 Cookie 已设置
       // 注意：浏览器需要时间来处理 Set-Cookie 响应头
       setTimeout(async () => {
@@ -62,6 +78,12 @@ export default function Home() {
       }, 500)
     } catch (err) {
       console.error('登录失败:', err)
+      // 如果是验证码错误，自动刷新验证码
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      if (apiService?.isCaptchaEnabled() && (errorMessage.includes('验证码') || errorMessage.includes('captcha'))) {
+        setCaptcha('')
+        await refreshCaptcha()
+      }
     }
   }
 
@@ -166,6 +188,54 @@ export default function Home() {
                 }}
               />
             </div>
+            {apiService?.isCaptchaEnabled() && (
+              <div style={{ margin: '15px 0' }}>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                  验证码:
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="text"
+                    value={captcha}
+                    onChange={(e) => setCaptcha(e.target.value)}
+                    required
+                    placeholder="请输入验证码"
+                    style={{
+                      flex: 1,
+                      padding: '8px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <div
+                    onClick={refreshCaptcha}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: '120px',
+                      height: '40px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      background: '#f9f9f9',
+                      cursor: 'pointer',
+                      opacity: captchaLoading ? 0.5 : 1,
+                    }}
+                  >
+                    {captchaImage ? (
+                      <img
+                        src={captchaImage}
+                        alt="验证码"
+                        style={{ maxWidth: '120px', maxHeight: '40px', borderRadius: '4px' }}
+                      />
+                    ) : (
+                      <span style={{ color: '#999', fontSize: '12px' }}>加载中...</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             <div style={{ margin: '15px 0' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                 <input

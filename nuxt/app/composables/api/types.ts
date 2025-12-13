@@ -10,6 +10,7 @@ export interface ApiResponse<T = any> {
 export interface LoginCredentials {
   username: string
   password: string
+  captcha?: string
   rememberMe?: boolean
 }
 

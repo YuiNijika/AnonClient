@@ -2,15 +2,20 @@
 import { ref, onMounted } from 'vue'
 import { useAuth } from './api/useAuth'
 import { useUser } from './api/useUser'
+import { useCaptcha } from './api/useCaptcha'
+import { apiService } from './api/core'
 
 const { login, logout, checkLogin, isLoggedIn, isLoading, error, clearError } = useAuth()
 const { getUserInfo, userInfo, clearUserInfo } = useUser()
+const { captchaImage, autoInit, refreshCaptcha, isLoading: captchaLoading } = useCaptcha()
 
 const username = ref('')
 const password = ref('')
+const captcha = ref('')
 const rememberMe = ref(false)
 const responseJson = ref<string | null>(null)
 const fetchingUserInfo = ref(false)
+const captchaEnabled = ref(false)
 
 const handleLogin = async () => {
   clearError()
@@ -19,7 +24,13 @@ const handleLogin = async () => {
       username: username.value,
       password: password.value,
       rememberMe: rememberMe.value,
+      captcha: captchaEnabled.value ? captcha.value : undefined,
     })
+    // 登录成功后刷新验证码
+    if (captchaEnabled.value) {
+      captcha.value = ''
+      await refreshCaptcha()
+    }
     // 登录成功后，等待一下再获取用户信息，确保 Cookie 已设置
     // 注意：浏览器需要时间来处理 Set-Cookie 响应头
     setTimeout(async () => {
@@ -36,6 +47,12 @@ const handleLogin = async () => {
     }, 500)
   } catch (err) {
     console.error('登录失败:', err)
+    // 如果是验证码错误，自动刷新验证码
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    if (captchaEnabled.value && (errorMessage.includes('验证码') || errorMessage.includes('captcha'))) {
+      captcha.value = ''
+      await refreshCaptcha()
+    }
   }
 }
 
@@ -89,8 +106,14 @@ const handleGetUserInfo = async () => {
   }
 }
 
-onMounted(() => {
-  checkLogin()
+onMounted(async () => {
+  await apiService.initConfig()
+  captchaEnabled.value = apiService.isCaptchaEnabled()
+  await checkLogin()
+  // 如果启用验证码，自动初始化
+  if (captchaEnabled.value) {
+    await autoInit()
+  }
 })
 </script>
 
@@ -115,6 +138,23 @@ onMounted(() => {
         <div class="form-group">
           <label>密码:</label>
           <input v-model="password" type="password" required />
+        </div>
+        <div v-if="captchaEnabled" class="form-group">
+          <label>验证码:</label>
+          <div class="captcha-container">
+            <input v-model="captcha" type="text" placeholder="请输入验证码" required style="flex: 1; margin-right: 10px;" />
+            <div class="captcha-image-wrapper">
+              <img 
+                v-if="captchaImage" 
+                :src="captchaImage" 
+                alt="验证码" 
+                class="captcha-image"
+                @click="refreshCaptcha"
+                :style="{ cursor: 'pointer', opacity: captchaLoading ? 0.5 : 1 }"
+              />
+              <div v-else class="captcha-placeholder">加载中...</div>
+            </div>
+          </div>
         </div>
         <div class="form-group">
           <label>
@@ -253,5 +293,33 @@ pre {
   color: #999;
   font-style: italic;
   margin-bottom: 15px;
+}
+
+.captcha-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.captcha-image-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  height: 40px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #f9f9f9;
+}
+
+.captcha-image {
+  max-width: 120px;
+  max-height: 40px;
+  border-radius: 4px;
+}
+
+.captcha-placeholder {
+  color: #999;
+  font-size: 12px;
 }
 </style>

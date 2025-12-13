@@ -46,7 +46,8 @@ export const API_ENDPOINTS = {
     LOGIN: '/auth/login',
     LOGOUT: '/auth/logout',
     CHECK_LOGIN: '/auth/check-login',
-    GET_TOKEN: '/auth/token'
+    GET_TOKEN: '/auth/token',
+    GET_CAPTCHA: '/auth/captcha'
   },
   USER: {
     INFO: '/user/info'

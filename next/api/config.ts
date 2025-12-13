@@ -44,6 +44,7 @@ export const API_ENDPOINTS = {
     LOGOUT: '/auth/logout',
     CHECK_LOGIN: '/auth/check-login',
     GET_TOKEN: '/auth/token',
+    GET_CAPTCHA: '/auth/captcha',
   },
   // 用户相关
   USER: {

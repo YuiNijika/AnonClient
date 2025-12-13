@@ -9,6 +9,7 @@ import { getStoredToken, setStoredToken, clearStoredToken } from '../utils/stora
 
 export class ApiService {
   private tokenEnabled: boolean = false
+  private captchaEnabled: boolean = false
   private configLoaded: boolean = false
   private tokenFetching: Promise<string | null> | null = null
 
@@ -28,18 +29,20 @@ export class ApiService {
     }
 
     try {
-      const response = await this.request<{ token: boolean }>(
+      const response = await this.request<{ token: boolean; captcha: boolean }>(
         API_ENDPOINTS.CONFIG.GET_CONFIG,
         { method: 'GET' }
       )
 
       if (response.success && response.data) {
-        this.tokenEnabled = response.data.token
+        this.tokenEnabled = response.data.token ?? false
+        this.captchaEnabled = response.data.captcha ?? false
         this.configLoaded = true
       }
     } catch (error) {
       console.warn('获取配置失败，使用默认配置:', error)
       this.tokenEnabled = false
+      this.captchaEnabled = false
       this.configLoaded = true
     }
   }
@@ -70,6 +73,13 @@ export class ApiService {
    */
   isTokenEnabled(): boolean {
     return this.tokenEnabled
+  }
+
+  /**
+   * 检查是否启用验证码
+   */
+  isCaptchaEnabled(): boolean {
+    return this.captchaEnabled
   }
 
   /**
@@ -161,14 +171,24 @@ export class ApiService {
       ...options,
     }
 
-    // 添加重试机制
+    // 添加重试机制（仅对网络错误重试，业务错误不重试）
     let lastError: Error | unknown
     for (let i = 0; i < retryCount; i++) {
       try {
         return await this._handleClientRequest<T>(url, defaultOptions, timeout)
       } catch (error) {
         lastError = error
-        console.error(`API请求失败 [${endpoint}] (第${i + 1}次尝试):`, error)
+        
+        // 判断是否为网络错误（需要重试）还是业务错误（不需要重试）
+        const isNetworkError = this._isNetworkError(error)
+        
+        if (!isNetworkError) {
+          // 业务错误（API 返回的错误），不重试，直接抛出
+          console.error(`API业务错误 [${endpoint}]:`, error)
+          throw lastError
+        }
+        
+        console.error(`API网络错误 [${endpoint}] (第${i + 1}次尝试):`, error)
 
         // 如果是最后一次重试，抛出错误
         if (i === retryCount - 1) {
@@ -266,7 +286,12 @@ export class ApiService {
       }
 
       // 如果响应不成功，抛出错误
+      // 注意：业务错误（如验证码错误）应该使用 responseData 中的错误消息
       if (!response.ok) {
+        // 如果响应数据中有错误信息，使用它
+        if (responseData && !responseData.success && responseData.message) {
+          throw new Error(responseData.message)
+        }
         throw new Error(`HTTP error! status: ${response.status}`, {
           cause: {
             status: response.status,
@@ -282,6 +307,56 @@ export class ApiService {
   }
 
   /**
+   * 判断是否为网络错误（需要重试）
+   * 业务错误（API 返回的错误）不需要重试
+   */
+  private _isNetworkError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false
+    }
+    
+    // 网络错误：连接失败、超时等
+    const networkErrorPatterns = [
+      'Failed to fetch',
+      'NetworkError',
+      'Network request failed',
+      'AbortError',
+      'timeout',
+      'ECONNREFUSED',
+      'ENOTFOUND',
+    ]
+    
+    // 检查错误名称或消息是否匹配网络错误模式
+    if (error.name === 'AbortError' || error.name === 'TypeError') {
+      return networkErrorPatterns.some(pattern => 
+        error.message.toLowerCase().includes(pattern.toLowerCase())
+      )
+    }
+    
+    // 检查错误消息
+    const errorMessage = error.message.toLowerCase()
+    const isNetworkError = networkErrorPatterns.some(pattern => 
+      errorMessage.includes(pattern.toLowerCase())
+    )
+    
+    // 如果错误消息包含业务错误相关的信息，不应该重试
+    const isBusinessError = 
+      errorMessage.includes('http error') ||
+      errorMessage.includes('status:') ||
+      errorMessage.includes('未授权') ||
+      errorMessage.includes('unauthorized') ||
+      errorMessage.includes('forbidden') ||
+      errorMessage.includes('not found') ||
+      errorMessage.includes('bad request') ||
+      errorMessage.includes('验证码') ||
+      errorMessage.includes('captcha') ||
+      errorMessage.includes('参数') ||
+      errorMessage.includes('validation')
+    
+    return isNetworkError && !isBusinessError
+  }
+
+  /**
    * 处理重试延迟
    */
   private async _handleRetryDelay(
@@ -290,9 +365,7 @@ export class ApiService {
     baseRetryDelay: number
   ): Promise<void> {
     // 对于网络错误和超时错误，增加重试延迟
-    const isNetworkError =
-      error instanceof Error &&
-      (error.name === 'AbortError' || error.message.includes('Failed to fetch'))
+    const isNetworkError = this._isNetworkError(error)
     const currentRetryDelay = isNetworkError
       ? baseRetryDelay * Math.pow(2, retryIndex) * 2
       : baseRetryDelay * Math.pow(2, retryIndex)

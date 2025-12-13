@@ -4,15 +4,18 @@ import { useAuth } from '~/composables/useAuth'
 import { useUserManager, authApi } from '~/composables/useApiService'
 import { apiService } from '~/composables/api/core'
 import { getStoredToken } from '~/composables/utils/storage'
+import { useCaptcha } from '~/composables/api/captcha'
 import type { LoginCredentials } from '~/composables/api/types'
 
 const authStore = useAuthStore()
 const { login, checkLoginStatus } = useAuth()
+const { captchaImage, autoInit, refreshCaptcha, isLoading: captchaLoading } = useCaptcha()
 
 const form = reactive<LoginCredentials>({
   username: '',
   password: '',
-  rememberMe: false
+  rememberMe: false,
+  captcha: ''
 })
 
 const loading = ref(false)
@@ -34,6 +37,11 @@ onMounted(async () => {
     }
 
     await authStore.checkAuthStatus()
+    
+    // 如果启用验证码，自动初始化
+    if (apiService.isCaptchaEnabled()) {
+      await autoInit()
+    }
   } catch (err) {
     console.error('应用初始化失败:', err)
   }
@@ -51,7 +59,13 @@ const handleLogin = async () => {
   loading.value = true
 
   try {
-    const result = await login(form)
+    const loginData: LoginCredentials = {
+      username: form.username,
+      password: form.password,
+      rememberMe: form.rememberMe,
+      ...(apiService.isCaptchaEnabled() ? { captcha: form.captcha } : {})
+    }
+    const result = await login(loginData)
 
     if (result.success && result.data) {
       // 登录成功，先设置用户信息
@@ -71,12 +85,35 @@ const handleLogin = async () => {
 
       authStore.initialized = true
       error.value = ''
+      // 登录成功后刷新验证码
+      if (apiService.isCaptchaEnabled()) {
+        form.captcha = ''
+        await refreshCaptcha()
+      }
     } else {
       error.value = result.message || '登录失败'
+      // 如果是验证码错误，自动刷新验证码
+      if (apiService.isCaptchaEnabled()) {
+        const errorMsg = result.message || ''
+        if (errorMsg.includes('验证码') || errorMsg.includes('captcha')) {
+          form.captcha = ''
+          await refreshCaptcha()
+        }
+      }
     }
   } catch (err) {
     console.error('登录请求失败:', err)
-    error.value = '网络错误，请稍后再试'
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    error.value = errorMessage.includes('验证码') || errorMessage.includes('captcha') 
+      ? errorMessage 
+      : '网络错误，请稍后再试'
+    // 如果是验证码错误，自动刷新验证码
+    if (apiService.isCaptchaEnabled()) {
+      if (errorMessage.includes('验证码') || errorMessage.includes('captcha')) {
+        form.captcha = ''
+        await refreshCaptcha()
+      }
+    }
   } finally {
     loading.value = false
   }
@@ -173,6 +210,29 @@ const handleGetUserInfo = async () => {
           <div class="form-group">
             <label class="form-label">密码</label>
             <input v-model="form.password" type="password" placeholder="请输入密码" class="form-input" />
+          </div>
+
+          <div v-if="apiService.isCaptchaEnabled()" class="form-group">
+            <label class="form-label">验证码</label>
+            <div class="captcha-container">
+              <input 
+                v-model="form.captcha" 
+                type="text" 
+                placeholder="请输入验证码" 
+                class="form-input captcha-input"
+                required
+              />
+              <div class="captcha-image-wrapper" @click="refreshCaptcha">
+                <img 
+                  v-if="captchaImage" 
+                  :src="captchaImage" 
+                  alt="验证码" 
+                  class="captcha-image"
+                  :style="{ cursor: 'pointer', opacity: captchaLoading ? 0.5 : 1 }"
+                />
+                <div v-else class="captcha-placeholder">加载中...</div>
+              </div>
+            </div>
           </div>
 
           <div class="form-checkbox-group">
@@ -489,6 +549,45 @@ const handleGetUserInfo = async () => {
   font-style: italic;
   margin-bottom: 1rem;
   font-size: 0.875rem;
+}
+
+.captcha-container {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-image-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 120px;
+  height: 2.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.captcha-image-wrapper:hover {
+  border-color: #3b82f6;
+  background: #f3f4f6;
+}
+
+.captcha-image {
+  max-width: 120px;
+  max-height: 40px;
+  border-radius: 0.5rem;
+}
+
+.captcha-placeholder {
+  color: #9ca3af;
+  font-size: 0.75rem;
 }
 
 @media (max-width: 640px) {
