@@ -2,47 +2,8 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
-
-interface UserInfo {
-  uid: number
-  name: string
-  email?: string
-  [key: string]: any
-}
-
-interface LoginResponse {
-  token?: string
-  user?: UserInfo
-}
-
-interface CheckLoginResponse {
-  logged_in?: boolean
-  loggedIn?: boolean
-}
-
-interface TokenResponse {
-  token?: string
-}
-
-// 封装获取用户信息的通用逻辑
-const fetchUserInfo = async (api: typeof api) => {
-  try {
-    const userRes = await api.get<UserInfo>('/user/info')
-    return userRes.data || null
-  } catch {
-    return null
-  }
-}
-
-// 封装获取 token 的通用逻辑
-const fetchToken = async (api: typeof api) => {
-  try {
-    const tokenRes = await api.get<TokenResponse>('/auth/token')
-    return tokenRes.data?.token || null
-  } catch {
-    return null
-  }
-}
+import { AuthService, type LoginDTO, type UserInfo } from '@/services/auth'
+import { UserService } from '@/services/user'
 
 export const useAuth = () => {
   const [user, setUser] = useState<UserInfo | null>(null)
@@ -50,19 +11,19 @@ export const useAuth = () => {
   const [error, setError] = useState<string | null>(null)
   const checkingRef = useRef(false)
 
-  const login = useCallback(async (data: Record<string, any>) => {
+  const login = useCallback(async (data: LoginDTO) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.post<LoginResponse>('/auth/login', data)
+      const res = await AuthService.login(data)
       // 设置 token
       if (res.data?.token && typeof window !== 'undefined') {
         localStorage.setItem('token', res.data.token)
       }
       // 通过 /user/info 获取完整用户信息
-      const userInfo = await fetchUserInfo(api)
-      if (userInfo) {
-        setUser(userInfo)
+      const userRes = await UserService.getInfo()
+      if (userRes.data) {
+        setUser(userRes.data)
       }
       return res
     } catch (err) {
@@ -81,11 +42,11 @@ export const useAuth = () => {
     }
   }, [])
 
-  const register = useCallback(async (data: Record<string, any>) => {
+  const register = useCallback(async (data: LoginDTO) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.post<LoginResponse>('/auth/register', data)
+      const res = await AuthService.register(data)
       // 设置 token
       if (res.data?.token && typeof window !== 'undefined') {
         localStorage.setItem('token', res.data.token)
@@ -95,9 +56,9 @@ export const useAuth = () => {
         setUser(res.data.user)
       } else {
         // 如果没有返回用户信息，则通过 /user/info 获取
-        const userInfo = await fetchUserInfo(api)
-        if (userInfo) {
-          setUser(userInfo)
+        const userRes = await UserService.getInfo()
+        if (userRes.data) {
+          setUser(userRes.data)
         }
       }
       return res
@@ -120,7 +81,7 @@ export const useAuth = () => {
   const logout = useCallback(async () => {
     setLoading(true)
     try {
-      await api.post('/auth/logout')
+      await AuthService.logout()
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token')
       }
@@ -133,34 +94,113 @@ export const useAuth = () => {
   }, [])
 
   const checkLogin = useCallback(async (): Promise<boolean> => {
-    // 防止重复请求，开发模式下可能导致重复调用
+    // 防止重复请求（开发模式下可能导致重复调用）
     if (checkingRef.current) {
       return !!user
     }
     checkingRef.current = true
     try {
-      const res = await api.get<CheckLoginResponse>('/auth/check-login')
+      const res = await AuthService.checkLogin()
       const loggedIn = res.data?.loggedIn ?? res.data?.logged_in ?? false
       if (loggedIn) {
         // 已登录则获取 token 和用户信息
         try {
-          const token = await fetchToken(api)
-          if (token && typeof window !== 'undefined') {
-            localStorage.setItem('token', token)
-          }
-          const userInfo = await fetchUserInfo(api)
-          if (userInfo) {
-            setUser(userInfo)
+          // 检查后端是否启用 Token
+          const configRes = await api.get<{ token?: boolean }>('/get-config')
+          const tokenEnabled = configRes.data?.token ?? false
+
+          // 如果启用 Token，先检查 Token 是否变化
+          if (tokenEnabled) {
+            const currentToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+            const tokenRes = await AuthService.getToken()
+            const newToken = tokenRes.data?.token
+
+            if (currentToken && newToken && currentToken !== newToken) {
+              // Token 已变化，说明是不同后端，清除状态
+              setUser(null)
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('token')
+              }
+              checkingRef.current = false
+              return false
+            }
+
+            // Token 未变化或没有旧 Token，继续验证用户信息
+            if (user) {
+              const userRes = await UserService.getInfo()
+              const userInfo = userRes.data
+              
+              if (userInfo) {
+                // 比较关键字段是否一致
+                const isUserMatch = 
+                  userInfo.uid === user.uid &&
+                  userInfo.name === user.name &&
+                  (userInfo.email || '') === (user.email || '')
+                
+                if (!isUserMatch) {
+                  // 用户信息不一致，说明 Token 无效或用户已变化，清除状态
+                  setUser(null)
+                  if (typeof window !== 'undefined') {
+                    localStorage.removeItem('token')
+                  }
+                  checkingRef.current = false
+                  return false
+                }
+                // 用户信息一致，更新用户信息并保存 Token
+                setUser(userInfo)
+                if (newToken && typeof window !== 'undefined') {
+                  localStorage.setItem('token', newToken)
+                }
+                checkingRef.current = false
+                return true
+              } else {
+                // 获取用户信息失败，清除状态
+                setUser(null)
+                if (typeof window !== 'undefined') {
+                  localStorage.removeItem('token')
+                }
+                checkingRef.current = false
+                return false
+              }
+            } else {
+              // 本地没有用户信息，直接获取用户信息和 Token
+              if (newToken && typeof window !== 'undefined') {
+                localStorage.setItem('token', newToken)
+              }
+              const userRes = await UserService.getInfo()
+              if (userRes.data) {
+                setUser(userRes.data)
+                checkingRef.current = false
+                return true
+              }
+              // 获取用户信息失败，清除状态
+              setUser(null)
+              if (typeof window !== 'undefined') {
+                localStorage.removeItem('token')
+              }
+              checkingRef.current = false
+              return false
+            }
+          } else {
+            // 不启用 Token，直接获取用户信息
+            const tokenRes = await AuthService.getToken()
+            if (tokenRes.data?.token && typeof window !== 'undefined') {
+              localStorage.setItem('token', tokenRes.data.token)
+            }
+            const userRes = await UserService.getInfo()
+            if (userRes.data) {
+              setUser(userRes.data)
+              checkingRef.current = false
+              return true
+            }
+            // 获取用户信息失败，清除状态
+            setUser(null)
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('token')
+            }
             checkingRef.current = false
-            return true
+            return false
           }
-          // 如果获取用户信息失败，说明后端状态异常，清除所有状态
-          setUser(null)
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('token')
-          }
-          checkingRef.current = false
-          return false
         } catch (err) {
           // Token 或用户信息获取失败，说明后端状态异常，清除所有状态
           setUser(null)
@@ -171,7 +211,7 @@ export const useAuth = () => {
           return false
         }
       }
-      // Session 已过期或后端重新安装，清除所有状态
+      // Session 已过期，清除所有状态
       setUser(null)
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token')
@@ -179,14 +219,9 @@ export const useAuth = () => {
       checkingRef.current = false
       return false
     } catch {
-      // 网络错误时后端可能无法访问，可能是后端重新安装或网络问题
-      // 为了安全清除所有状态，强制用户重新登录
-      setUser(null)
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token')
-      }
+      // 网络错误或其他错误，不清空状态，等待重试
       checkingRef.current = false
-      return false
+      return !!user
     }
   }, [user])
 

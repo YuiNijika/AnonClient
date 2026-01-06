@@ -9,7 +9,7 @@ const API_BASE_URLS: string[] = [
   '/anon-dev-server',
 ]
 
-// 通过修改索引切换地址，索引0为直接地址，索引1为代理模式
+// 通过修改索引切换地址：0=直接地址，1=代理模式
 const API_BASE_URL = import.meta.env.DEV ? API_BASE_URLS[1] : API_BASE_URLS[0]
 
 const buildQueryString = (params?: Record<string, any>): string => {
@@ -45,11 +45,11 @@ export const useApi = () => {
       })
       const data: ApiResponse<T> = await res.json()
 
-      // 处理认证失败，状态码为401或403
+      // 处理认证失败（401/403）
       if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
         // Token 过期或无效，清除 Token 和用户状态
         localStorage.removeItem('token')
-        // 触发重新检查登录状态，如果 auth store 可用则清除用户状态
+        // 触发重新检查登录状态（如果 auth store 可用）
         try {
           const { useAuthStore } = await import('../stores/auth')
           const authStore = useAuthStore()

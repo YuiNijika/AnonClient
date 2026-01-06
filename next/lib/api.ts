@@ -47,7 +47,7 @@ const request = async <T = any>(
     })
       const data: ApiResponse<T> = await res.json()
 
-      // 处理认证失败，状态码为401或403
+      // 处理认证失败（401/403）
       if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
         // Token 过期或无效，清除 Token
         if (typeof window !== 'undefined') {

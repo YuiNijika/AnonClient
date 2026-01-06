@@ -11,7 +11,7 @@ function App() {
   const hasCheckedRef = useRef(false)
 
   useEffect(() => {
-    // 防止重复请求，StrictMode 会导致重复调用
+    // 防止重复请求（StrictMode 会导致重复调用）
     if (hasCheckedRef.current) {
       return
     }

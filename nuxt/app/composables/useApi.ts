@@ -45,11 +45,11 @@ export const useApi = () => {
 
       const data: ApiResponse<T> = await res.json()
 
-      // 处理认证失败，状态码为401或403
+      // 处理认证失败（401/403）
       if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
         // Token 过期或无效，清除 Token 和用户状态
         token.value = null
-        // 触发重新检查登录状态，如果 auth store 可用则清除用户状态
+        // 触发重新检查登录状态（如果 auth store 可用）
         if (import.meta.client) {
           try {
             const { useAuthStore } = await import('../stores/auth')
