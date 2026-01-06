@@ -1,150 +1,289 @@
-# 前端客户端
+# Anon 前端框架 API 对接
 
-四个前端框架的 API 封装实现，已对接后端 API。
+本项目包含四个前端框架的 API 对接实现：
 
-## 项目结构
+- Vue 3 (Composition API + Pinia)
+- Nuxt.js 3 (Pinia)
+- React 18
+- Next.js 14
+
+## 开发规范
+
+### 通用规范
+
+1. **逻辑封装**：所有 API 请求逻辑都封装在 composables/hooks 中
+2. **组件简化**：Vue 组件不写 script，仅调用 composables
+3. **状态管理**：Vue 和 Nuxt 使用 Pinia 管理登录状态，支持持久化
+4. **环境配置**：
+   - 开发环境：代理到 `/anon-dev-server/`
+   - 生产环境：使用 `baseUrl` 环境变量
+
+### Vue 3
+
+**目录结构：**
 
 ```
-client/
-├── vue/          # Vue 3 + Pinia
-├── react/        # React + React Router 7
-├── next/         # Next.js 16
-└── nuxt/         # Nuxt 4 + Pinia
+vue/
+├── src/
+│   ├── composables/
+│   │   ├── useApi.ts      # API 基础封装
+│   │   ├── useAuth.ts     # 认证相关（使用 Pinia store）
+│   │   ├── useCaptcha.ts  # 验证码相关
+│   │   └── index.ts       # 统一导出
+│   ├── stores/
+│   │   └── auth.ts        # Pinia 认证 store（持久化）
+│   └── views/
+│       └── Login.vue      # 示例页面（无 script）
 ```
 
-## 快速开始
-
-```bash
-# Vue
-cd vue && pnpm dev
-
-# React
-cd react && pnpm dev
-
-# Next.js
-cd next && pnpm dev
-
-# Nuxt
-cd nuxt && pnpm dev
-```
-
-## API 配置
-
-修改各框架的 API 基础 URL：
-
-- **Vue**: `src/api/config.ts`
-- **React**: `app/api/config.ts`
-- **Next.js**: `api/config.ts`
-- **Nuxt**: `app/composables/api/config.ts`
-
-## 使用示例
-
-### Vue / Nuxt
+**使用示例：**
 
 ```vue
-<script setup lang="ts">
-const { login, logout, isLoggedIn } = useAuth()
-const { getUserInfo, userInfo } = useUser()
-const { getCaptcha, captchaImage, refreshCaptcha } = useCaptcha()
-
-// 获取验证码
-await getCaptcha()
-
-// 登录（包含验证码）
-await login({ 
-  username: 'admin', 
-  password: 'password',
-  captcha: '1234'
-})
-await getUserInfo()
-</script>
-
 <template>
-  <img :src="captchaImage" @click="refreshCaptcha" alt="验证码" />
+  <div>
+    <button @click="handleLogin">登录</button>
+  </div>
 </template>
+
+<script setup lang="ts">
+import { useAuth } from '@/composables'
+
+const { login, loading, error, user, isAuthenticated } = useAuth()
+
+const handleLogin = async () => {
+  await login({ username: 'test', password: '123456' })
+}
+</script>
 ```
 
-### React / Next.js
+**配置：**
+
+- Pinia 持久化：已配置 `pinia-plugin-persistedstate`，登录状态自动保存到 localStorage
+- 开发代理：`vite.config.ts` 中配置 `/anon-dev-server` 代理
+- 生产环境：设置 `VITE_API_BASE_URL` 环境变量
+
+### Nuxt.js 3
+
+**目录结构：**
+
+```
+nuxt/
+├── composables/
+│   ├── useApi.ts
+│   ├── useAuth.ts         # 使用 Pinia store
+│   └── useCaptcha.ts
+├── stores/
+│   └── auth.ts            # Pinia 认证 store（持久化）
+└── plugins/
+    └── pinia-persistedstate.client.ts  # 持久化插件配置
+```
+
+**使用示例：**
+
+```vue
+<template>
+  <div>
+    <button @click="handleLogin">登录</button>
+  </div>
+</template>
+
+<script setup lang="ts">
+const { login, loading, error, user, isAuthenticated } = useAuth()
+
+const handleLogin = async () => {
+  await login({ username: 'test', password: '123456' })
+}
+</script>
+```
+
+**配置：**
+
+- Pinia 模块：已配置 `@pinia/nuxt` 和 `pinia-plugin-persistedstate`
+- 持久化：登录状态自动保存到 localStorage
+- 开发代理：`nuxt.config.ts` 中配置 Vite proxy
+- 生产环境：设置 `NUXT_PUBLIC_API_BASE_URL` 环境变量
+
+### React 18
+
+**目录结构：**
+
+```
+react/
+├── src/
+│   ├── hooks/
+│   │   ├── useApi.ts
+│   │   ├── useAuth.ts
+│   │   ├── useCaptcha.ts
+│   │   └── index.ts
+```
+
+**使用示例：**
 
 ```tsx
-const { login, logout, isLoggedIn } = useAuth()
-const { getUserInfo, userInfo } = useUser()
-const { getCaptcha, captchaImage, refreshCaptcha } = useCaptcha()
+import { useAuth } from '@/hooks'
 
-// 获取验证码
-await getCaptcha()
-
-// 登录（包含验证码）
-await login({ 
-  username: 'admin', 
-  password: 'password',
-  captcha: '1234'
-})
-await getUserInfo()
-
-// 显示验证码
-<img src={captchaImage} onClick={refreshCaptcha} alt="验证码" />
+function LoginPage() {
+  const { login, loading, error, user, isAuthenticated } = useAuth()
+  
+  const handleLogin = async () => {
+    await login({ username: 'test', password: '123456' })
+  }
+  
+  return <button onClick={handleLogin}>登录</button>
+}
 ```
 
-## API 接口
+**配置：**
 
-### 认证
+- 开发代理：`vite.config.ts` 中配置 `/anon-dev-server` 代理
+- 生产环境：设置 `VITE_API_BASE_URL` 环境变量
+
+### Next.js 14
+
+**目录结构：**
+
+```
+next/
+├── lib/
+│   └── api.ts           # API 基础封装
+├── hooks/
+│   ├── useAuth.ts
+│   ├── useCaptcha.ts
+│   └── index.ts
+```
+
+**使用示例：**
+
+```tsx
+'use client'
+
+import { useAuth } from '@/hooks'
+
+export default function LoginPage() {
+  const { login, loading, error, user, isAuthenticated } = useAuth()
+  
+  const handleLogin = async () => {
+    await login({ username: 'test', password: '123456' })
+  }
+  
+  return <button onClick={handleLogin}>登录</button>
+}
+```
+
+**配置：**
+
+- 开发代理：`next.config.ts` 中配置 rewrites
+- 生产环境：设置 `NEXT_PUBLIC_API_BASE_URL` 环境变量
+
+## Pinia 状态管理（Vue & Nuxt）
+
+### 认证 Store
+
+登录状态通过 Pinia store 管理，支持持久化：
+
+```typescript
+// 使用 store
+const authStore = useAuthStore()
+
+// 访问状态
+authStore.user
+authStore.isAuthenticated
+authStore.loading
+authStore.error
+
+// 调用方法
+await authStore.login({ username: 'test', password: '123456' })
+await authStore.logout()
+await authStore.checkLogin()
+```
+
+### 持久化配置
+
+- **Vue**: 使用 `pinia-plugin-persistedstate`，状态保存到 localStorage
+- **Nuxt**: 使用 `pinia-plugin-persistedstate`，状态保存到 localStorage
+
+持久化的数据：
+
+- `user`: 用户信息
+- `token`: 认证令牌（Vue 中同时保存到 localStorage）
+
+## API 端点
+
+### 认证相关
 
 - `POST /auth/login` - 登录
-- `POST /auth/logout` - 登出
-- `GET /auth/check-login` - 检查登录状态
+- `POST /auth/logout` - 退出
+- `POST /auth/register` - 注册
 - `GET /auth/token` - 获取 Token
+- `GET /auth/check-login` - 检查登录状态
+- `GET /auth/captcha` - 获取验证码
 
-### 用户
+### 用户相关
 
 - `GET /user/info` - 获取用户信息
 
-### 配置
+### 配置相关
 
-- `GET /anon/common/config` - 获取配置（Token 是否启用）
+- `GET /anon/common/config` - 获取配置（验证码开关等）
 
-### 验证码
+## 环境变量
 
-- `GET /auth/captcha` - 获取验证码（返回 base64 图片）
+### Vue / React
 
-## Token 验证
-
-前端自动处理 Token 验证：
-
-1. 应用启动时调用 `/anon/common/config` 获取配置
-2. 如果启用 Token，登录后自动保存 Token
-3. 后续请求自动在请求头中携带 `X-API-Token`
-4. Token 缺失时自动从 `/auth/token` 获取（需已登录）
-
-## 验证码
-
-前端自动处理验证码：
-
-1. 应用启动时调用 `/anon/common/config` 获取配置
-2. 如果启用验证码，调用 `useCaptcha().autoInit()` 自动获取验证码
-3. 登录时自动检查是否需要验证码，并在请求中包含验证码
-4. 验证码错误后自动刷新验证码
-
-### 使用示例
-
-```typescript
-// 自动初始化验证码
-const { captchaImage, autoInit } = useCaptcha()
-await autoInit()
-
-// 登录时包含验证码
-await login({
-  username: 'admin',
-  password: 'password',
-  captcha: '1234' // 如果启用验证码，此字段必填
-})
+```env
+VITE_API_BASE_URL=http://localhost:8000
 ```
 
-## 功能特性
+### Nuxt.js
 
-- ✅ 统一的 API 客户端封装
-- ✅ 自动 Token 管理
-- ✅ 自动 Cookie 处理
-- ✅ TypeScript 类型支持
-- ✅ 统一错误处理
-- ✅ 响应式状态管理
+```env
+NUXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+### Next.js
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+## 开发环境代理
+
+所有框架在开发环境下都会将 `/anon-dev-server/*` 代理到 `http://localhost:8000/*`。
+
+## Token 管理
+
+- **Vue**: Token 存储在 Pinia store 和 localStorage（双重存储）
+- **Nuxt**: Token 存储在 Pinia store 和 Cookie（使用 `useCookie`）
+- **React/Next.js**: Token 存储在 localStorage
+- 请求时自动在 `X-API-Token` header 中携带
+- 登录成功后自动保存 Token
+
+## 安装依赖
+
+### Vue
+
+```bash
+cd client/vue
+pnpm install
+```
+
+### Nuxt
+
+```bash
+cd client/nuxt
+pnpm install
+```
+
+### React
+
+```bash
+cd client/react
+pnpm install
+```
+
+### Next.js
+
+```bash
+cd client/next
+pnpm install
+```
