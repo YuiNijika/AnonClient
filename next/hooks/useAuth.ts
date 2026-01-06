@@ -66,6 +66,13 @@ export const useAuth = () => {
       }
       return res
     } catch (err) {
+      // 处理认证错误
+      if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
+        setUser(null)
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token')
+        }
+      }
       const message = err instanceof Error ? err.message : '登录失败'
       setError(message)
       throw err
@@ -95,6 +102,13 @@ export const useAuth = () => {
       }
       return res
     } catch (err) {
+      // 处理认证错误
+      if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
+        setUser(null)
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token')
+        }
+      }
       const message = err instanceof Error ? err.message : '注册失败'
       setError(message)
       throw err
@@ -119,7 +133,7 @@ export const useAuth = () => {
   }, [])
 
   const checkLogin = useCallback(async (): Promise<boolean> => {
-    // 防止重复请求（开发模式下可能导致重复调用）
+    // 防止重复请求，开发模式下可能导致重复调用
     if (checkingRef.current) {
       return !!user
     }
@@ -129,22 +143,48 @@ export const useAuth = () => {
       const loggedIn = res.data?.loggedIn ?? res.data?.logged_in ?? false
       if (loggedIn) {
         // 已登录则获取 token 和用户信息
-        const token = await fetchToken(api)
-        if (token && typeof window !== 'undefined') {
-          localStorage.setItem('token', token)
-        }
-        const userInfo = await fetchUserInfo(api)
-        if (userInfo) {
-          setUser(userInfo)
+        try {
+          const token = await fetchToken(api)
+          if (token && typeof window !== 'undefined') {
+            localStorage.setItem('token', token)
+          }
+          const userInfo = await fetchUserInfo(api)
+          if (userInfo) {
+            setUser(userInfo)
+            checkingRef.current = false
+            return true
+          }
+          // 如果获取用户信息失败，说明后端状态异常，清除所有状态
+          setUser(null)
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('token')
+          }
           checkingRef.current = false
-          return true
+          return false
+        } catch (err) {
+          // Token 或用户信息获取失败，说明后端状态异常，清除所有状态
+          setUser(null)
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('token')
+          }
+          checkingRef.current = false
+          return false
         }
       }
+      // Session 已过期或后端重新安装，清除所有状态
       setUser(null)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token')
+      }
       checkingRef.current = false
       return false
     } catch {
+      // 网络错误时后端可能无法访问，可能是后端重新安装或网络问题
+      // 为了安全清除所有状态，强制用户重新登录
       setUser(null)
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token')
+      }
       checkingRef.current = false
       return false
     }

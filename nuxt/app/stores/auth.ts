@@ -129,20 +129,36 @@ export const useAuthStore = defineStore('auth', {
         const loggedIn = res.data?.loggedIn ?? res.data?.logged_in ?? false
         if (loggedIn) {
           // 已登录则获取 token 和用户信息
-          const token = await fetchToken(api)
-          if (token) {
-            useCookie('token').value = token
-          }
-          const userInfo = await fetchUserInfo(api)
-          if (userInfo) {
-            this.user = userInfo
-            return true
+          try {
+            const token = await fetchToken(api)
+            if (token) {
+              useCookie('token').value = token
+            }
+            const userInfo = await fetchUserInfo(api)
+            if (userInfo) {
+              this.user = userInfo
+              return true
+            }
+            // 如果获取用户信息失败，说明后端状态异常，清除所有状态
+            this.user = null
+            useCookie('token').value = null
+            return false
+          } catch (err) {
+            // Token 或用户信息获取失败，说明后端状态异常，清除所有状态
+            this.user = null
+            useCookie('token').value = null
+            return false
           }
         }
+        // Session 已过期或后端重新安装，清除所有状态包括持久化的用户信息
         this.user = null
+        useCookie('token').value = null
         return false
       } catch {
+        // 网络错误时后端可能无法访问，可能是后端重新安装或网络问题
+        // 为了安全清除所有状态，强制用户重新登录
         this.user = null
+        useCookie('token').value = null
         return false
       }
     },

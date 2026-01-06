@@ -45,19 +45,34 @@ const request = async <T = any>(
       headers,
       credentials: 'include',
     })
-    const data: ApiResponse<T> = await res.json()
+      const data: ApiResponse<T> = await res.json()
 
-    if (data.code !== 200) {
-      throw new Error(data.message || '请求失败')
+      // 处理认证失败，状态码为401或403
+      if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
+        // Token 过期或无效，清除 Token
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token')
+        }
+        // 注意：Next.js 中需要在组件层面处理用户状态清除
+      }
+
+      if (data.code !== 200) {
+        throw new Error(data.message || '请求失败')
+      }
+      if (data.data?.token && typeof window !== 'undefined') {
+        localStorage.setItem('token', data.data.token)
+      }
+      return data
+    } catch (error) {
+      // 处理 HTTP 401/403 错误
+      if (error instanceof Error && (error.message.includes('401') || error.message.includes('403'))) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token')
+        }
+      }
+      if (error instanceof Error) throw error
+      throw new Error('网络请求失败')
     }
-    if (data.data?.token && typeof window !== 'undefined') {
-      localStorage.setItem('token', data.data.token)
-    }
-    return data
-  } catch (error) {
-    if (error instanceof Error) throw error
-    throw new Error('网络请求失败')
-  }
 }
 
 export const api = {

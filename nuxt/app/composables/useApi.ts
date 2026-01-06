@@ -45,6 +45,22 @@ export const useApi = () => {
 
       const data: ApiResponse<T> = await res.json()
 
+      // 处理认证失败，状态码为401或403
+      if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
+        // Token 过期或无效，清除 Token 和用户状态
+        token.value = null
+        // 触发重新检查登录状态，如果 auth store 可用则清除用户状态
+        if (import.meta.client) {
+          try {
+            const { useAuthStore } = await import('../stores/auth')
+            const authStore = useAuthStore()
+            authStore.user = null
+          } catch {
+            // 静默失败，避免循环依赖
+          }
+        }
+      }
+
       if (data.code !== 200) {
         throw new Error(data.message || '请求失败')
       }
@@ -53,6 +69,15 @@ export const useApi = () => {
       }
       return data
     } catch (error) {
+      // 处理 HTTP 401/403 错误
+      if (error instanceof Error && error.message.includes('401')) {
+        token.value = null
+        if (import.meta.client) {
+          const { useAuthStore } = await import('../stores/auth')
+          const authStore = useAuthStore()
+          authStore.user = null
+        }
+      }
       console.error('API Request Failed:', error)
       if (error instanceof Error) throw error
       throw new Error('网络请求失败')

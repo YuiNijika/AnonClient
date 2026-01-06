@@ -27,7 +27,7 @@ export const useCaptcha = () => {
   }, [get])
 
   const check = useCallback(async () => {
-    // 防止重复请求（StrictMode 会导致重复调用）
+    // 防止重复请求，StrictMode 会导致重复调用
     if (checkingRef.current) {
       return
     }

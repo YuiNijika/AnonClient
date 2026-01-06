@@ -47,6 +47,13 @@ export const useApi = () => {
       })
       const data: ApiResponse<T> = await res.json()
 
+      // 处理认证失败，状态码为401或403
+      if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
+        // Token 过期或无效，清除 Token
+        localStorage.removeItem('token')
+        // 注意：React 中需要在组件层面处理用户状态清除
+      }
+
       if (data.code !== 200) {
         throw new Error(data.message || '请求失败')
       }
@@ -55,6 +62,10 @@ export const useApi = () => {
       }
       return data
     } catch (error) {
+      // 处理 HTTP 401/403 错误
+      if (error instanceof Error && (error.message.includes('401') || error.message.includes('403'))) {
+        localStorage.removeItem('token')
+      }
       if (error instanceof Error) throw error
       throw new Error('网络请求失败')
     }

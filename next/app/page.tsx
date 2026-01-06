@@ -12,7 +12,7 @@ export default function Home() {
   const hasCheckedRef = useRef(false)
 
   useEffect(() => {
-    // 防止重复请求（开发模式下可能导致重复调用）
+    // 防止重复请求，开发模式下可能导致重复调用
     if (hasCheckedRef.current) {
       return
     }
