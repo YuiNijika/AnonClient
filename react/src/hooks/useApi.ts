@@ -11,7 +11,6 @@ const API_BASE_URLS: string[] = [
   '/anon-dev-server',
 ]
 
-// 通过修改索引切换地址：0=直接地址，1=代理模式
 const API_BASE_URL = import.meta.env.DEV ? API_BASE_URLS[1] : API_BASE_URLS[0]
 
 const buildQueryString = (params?: Record<string, any>): string => {
@@ -47,25 +46,21 @@ export const useApi = () => {
       })
       const data: ApiResponse<T> = await res.json()
 
-      // 处理认证失败（401/403）
-      if (data.code === 401 || data.code === 403 || res.status === 401 || res.status === 403) {
-        // Token 过期或无效，清除 Token
+      // 自动处理 Token 失效
+      if ([401, 403].includes(data.code) || [401, 403].includes(res.status)) {
         localStorage.removeItem('token')
-        // 注意：React 中需要在组件层面处理用户状态清除
       }
 
       if (data.code !== 200) {
         throw new Error(data.message || '请求失败')
       }
+      
+      // 自动更新 Token
       if (data.data?.token) {
         localStorage.setItem('token', data.data.token)
       }
       return data
     } catch (error) {
-      // 处理 HTTP 401/403 错误
-      if (error instanceof Error && (error.message.includes('401') || error.message.includes('403'))) {
-        localStorage.removeItem('token')
-      }
       if (error instanceof Error) throw error
       throw new Error('网络请求失败')
     }

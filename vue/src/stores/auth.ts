@@ -90,101 +90,33 @@ export const useAuthStore = defineStore('auth', {
         
         if (loggedIn) {
           try {
-            // 检查后端是否启用 Token
             const configRes = await api.get<{ token?: boolean }>('/get-config')
-            const tokenEnabled = configRes.data?.token ?? false
-
-            // 如果启用 Token，先检查 Token 是否变化
-            if (tokenEnabled) {
-              const currentToken = localStorage.getItem('token')
-              const tokenRes = await AuthApi.getToken(api)
-              const newToken = tokenRes.data?.token
-
-              if (currentToken && newToken && currentToken !== newToken) {
-                // Token 已变化，说明是不同后端，清除状态
-                this.user = null
-                localStorage.removeItem('token')
-                return false
-              }
-
-              // Token 未变化或没有旧 Token，继续验证用户信息
-              if (this.user) {
-                const userRes = await UserApi.getInfo(api)
-                const userInfo = userRes.data
-                
-                if (userInfo) {
-                  // 比较关键字段是否一致
-                  const isUserMatch =
-                    userInfo.uid === this.user.uid &&
-                    userInfo.name === this.user.name &&
-                    (userInfo.email || '') === (this.user.email || '')
-
-                  if (!isUserMatch) {
-                    // 用户信息不一致，说明 Token 无效或用户已变化，清除状态
-                    this.user = null
-                    localStorage.removeItem('token')
-                    return false
-                  }
-                  // 用户信息一致，更新用户信息并保存 Token
-                  this.user = userInfo
-                  if (newToken) {
-                    localStorage.setItem('token', newToken)
-                  }
-                  return true
-                } else {
-                  // 获取用户信息失败，清除状态
-                  this.user = null
-                  localStorage.removeItem('token')
-                  return false
-                }
-              } else {
-                // 本地没有用户信息，直接获取用户信息和 Token
-                if (newToken) {
-                  localStorage.setItem('token', newToken)
-                }
-                const userRes = await UserApi.getInfo(api)
-                if (userRes.data) {
-                  this.user = userRes.data
-                  return true
-                }
-                // 获取用户信息失败，清除状态
-                this.user = null
-                localStorage.removeItem('token')
-                return false
-              }
-            } else {
-              // 不启用 Token，直接获取用户信息
+            
+            if (configRes.data?.token) {
               const tokenRes = await AuthApi.getToken(api)
               if (tokenRes.data?.token) {
                 localStorage.setItem('token', tokenRes.data.token)
               }
-              const userRes = await UserApi.getInfo(api)
-              if (userRes.data) {
-                this.user = userRes.data
-                return true
-              }
-              // 获取用户信息失败，清除状态
-              this.user = null
-              localStorage.removeItem('token')
-              return false
             }
-          } catch (err) {
-            // Token 或用户信息获取失败，说明后端状态异常，清除所有状态
+
+            const userRes = await UserApi.getInfo(api)
+            if (userRes.data) {
+              this.user = userRes.data
+              return true
+            }
+          } catch {
             this.user = null
             localStorage.removeItem('token')
             return false
           }
         }
-        // Session 已过期或后端重新安装，清除所有状态
+
         this.user = null
         localStorage.removeItem('token')
         return false
-      } catch {
-        // 网络错误时后端可能无法访问，可能是后端重新安装或网络问题
-        // 为了安全清除所有状态，强制用户重新登录
-        this.user = null
-        localStorage.removeItem('token')
-        return false
+      } catch (err) {
+        console.error('Check login failed:', err)
+        return !!this.user
       }
     },
   },
