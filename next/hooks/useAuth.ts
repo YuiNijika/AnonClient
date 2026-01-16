@@ -1,38 +1,66 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { AuthService, type LoginDTO, type UserInfo } from '@/services/auth'
 import { UserService } from '@/services/user'
 
 export const useAuth = () => {
-  const [user, setUser] = useState<UserInfo | null>(null)
+  const [user, setUser] = useState<UserInfo | null>(() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const persisted = localStorage.getItem('auth-user')
+      return persisted ? JSON.parse(persisted) : null
+    } catch {
+      return null
+    }
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const checkingRef = useRef(false)
+  const initializedRef = useRef(false)
+
+  const hasToken = useCallback(() => {
+    if (typeof window === 'undefined') return false
+    return !!localStorage.getItem('token')
+  }, [])
+
+  const initialize = useCallback(() => {
+    if (initializedRef.current || typeof window === 'undefined') return
+    
+    const token = localStorage.getItem('token')
+    if (token || user) {
+      initializedRef.current = true
+      return
+    }
+    
+    setUser(null)
+    initializedRef.current = true
+  }, [user])
+
+  useEffect(() => {
+    initialize()
+  }, [initialize])
 
   const login = useCallback(async (data: LoginDTO) => {
     setLoading(true)
     setError(null)
     try {
       const res = await AuthService.login(data)
-      // 设置 token
       if (res.data?.token && typeof window !== 'undefined') {
         localStorage.setItem('token', res.data.token)
       }
-      // 通过 /user/info 获取完整用户信息
       const userRes = await UserService.getInfo()
       if (userRes.data) {
         setUser(userRes.data)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('auth-user', JSON.stringify(userRes.data))
+        }
       }
       return res
     } catch (err) {
-      // 处理认证错误
       if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
-        setUser(null)
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('token')
-        }
+        clearAuth()
       }
       const message = err instanceof Error ? err.message : '登录失败'
       setError(message)
@@ -47,28 +75,27 @@ export const useAuth = () => {
     setError(null)
     try {
       const res = await AuthService.register(data)
-      // 设置 token
       if (res.data?.token && typeof window !== 'undefined') {
         localStorage.setItem('token', res.data.token)
       }
-      // 直接使用返回的用户信息
       if (res.data?.user) {
         setUser(res.data.user)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('auth-user', JSON.stringify(res.data.user))
+        }
       } else {
-        // 如果没有返回用户信息，则通过 /user/info 获取
         const userRes = await UserService.getInfo()
         if (userRes.data) {
           setUser(userRes.data)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('auth-user', JSON.stringify(userRes.data))
+          }
         }
       }
       return res
     } catch (err) {
-      // 处理认证错误
       if (err instanceof Error && (err.message.includes('401') || err.message.includes('403'))) {
-        setUser(null)
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('token')
-        }
+        clearAuth()
       }
       const message = err instanceof Error ? err.message : '注册失败'
       setError(message)
@@ -78,73 +105,108 @@ export const useAuth = () => {
     }
   }, [])
 
+  const clearAuth = useCallback(() => {
+    setUser(null)
+    setError(null)
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('token')
+      localStorage.removeItem('auth-user')
+    }
+  }, [])
+
   const logout = useCallback(async () => {
     setLoading(true)
     try {
       await AuthService.logout()
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token')
-      }
-      setUser(null)
+      clearAuth()
     } catch {
-      // 静默失败
+      clearAuth()
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [clearAuth])
 
-  const checkLogin = useCallback(async (): Promise<boolean> => {
-    if (checkingRef.current) return !!user
+  /**
+   * 检查登录状态
+   * 只在必要时才请求后端
+   */
+  const checkLogin = useCallback(async (force = false): Promise<boolean> => {
+    if (checkingRef.current && !force) {
+      return !!user
+    }
+
+    if (!hasToken() && !user) {
+      setUser(null)
+      initializedRef.current = true
+      return false
+    }
+
     checkingRef.current = true
 
     try {
+      // 如果已有用户信息且未强制刷新，直接返回
+      if (user && !force) {
+        initializedRef.current = true
+        checkingRef.current = false
+        return true
+      }
+
+      // 先检查登录状态
       const res = await AuthService.checkLogin()
       const loggedIn = res.data?.loggedIn ?? res.data?.logged_in ?? false
 
-      if (loggedIn) {
-        try {
-          const configRes = await api.get<{ token?: boolean }>('/get-config')
-          
-          if (configRes.data?.token) {
-            const tokenRes = await AuthService.getToken()
-            if (tokenRes.data?.token && typeof window !== 'undefined') {
-              localStorage.setItem('token', tokenRes.data.token)
-            }
-          }
-
-          const userRes = await UserService.getInfo()
-          if (userRes.data) {
-            setUser(userRes.data)
-            checkingRef.current = false
-            return true
-          }
-        } catch {
-          setUser(null)
-          if (typeof window !== 'undefined') localStorage.removeItem('token')
-          checkingRef.current = false
-          return false
-        }
+      if (!loggedIn) {
+        clearAuth()
+        checkingRef.current = false
+        initializedRef.current = true
+        return false
       }
 
-      setUser(null)
-      if (typeof window !== 'undefined') localStorage.removeItem('token')
-      checkingRef.current = false
-      return false
+      // 如果已有用户信息，不需要再次获取
+      if (user) {
+        checkingRef.current = false
+        initializedRef.current = true
+        return true
+      }
+
+      // 获取用户信息
+      const userRes = await UserService.getInfo()
+      if (userRes.data) {
+        setUser(userRes.data)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('auth-user', JSON.stringify(userRes.data))
+        }
+        setError(null)
+        checkingRef.current = false
+        initializedRef.current = true
+        return true
+      } else {
+        clearAuth()
+        checkingRef.current = false
+        initializedRef.current = true
+        return false
+      }
     } catch (err) {
       console.error('Check login failed:', err)
+      if (!hasToken() && !user) {
+        clearAuth()
+      }
       checkingRef.current = false
+      initializedRef.current = true
       return !!user
     }
-  }, [user])
+  }, [user, hasToken, clearAuth])
 
   return {
     user,
     isAuthenticated: !!user,
+    hasToken: hasToken(),
     loading,
     error,
     login,
     register,
     logout,
     checkLogin,
+    initialize,
   }
 }
